@@ -1,0 +1,13 @@
+---
+title: "week_4"
+output: html_document
+date: '2022-10-26'
+---
+
+```{r}
+library(terra)
+jan<-terra::rast("wc2.1_5m_tavg/wc2.1_5m_tavg_01.tif")
+# have a look at the raster layer jan
+plot(jan)
+```
+
