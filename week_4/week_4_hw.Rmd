@@ -1,0 +1,22 @@
+---
+title: "week_4_hw"
+output: html_document
+date: '2022-10-26'
+---
+
+```{r warning=FALSE}
+library(tidyverse)
+library(sf)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# read in gender inequality data
+gii<- read_csv("HDR21-22_Composite_indices_complete_time_series.csv")
+
+# subset to essential info and gender inequality index in 2010 and 2019
+gii_sub <- gii %>%
+  select(iso3, country, reg)
+
+```
+
