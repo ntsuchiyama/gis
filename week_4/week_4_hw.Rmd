@@ -4,6 +4,11 @@ output: html_document
 date: '2022-10-26'
 ---
 
+Read in global gender inequality data
+Join the global gender inequality index to spatial data of the World, creating a new column of difference in inequality between 2010 and 2019
+Share it with the World on GitHub
+Add you repository URL to the circulated spreadsheet
+
 ```{r warning=FALSE}
 library(tidyverse)
 library(sf)
