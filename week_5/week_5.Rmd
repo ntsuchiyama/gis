@@ -4,9 +4,68 @@ output: html_document
 date: '2022-11-02'
 ---
 
-5.5 Data
+```{r message=FALSE, warning=FALSE}
 
-5.5.1 OSM
+# packages used 
+library(sf)
+library(tmap)
+library(tmaptools)
+library(tidyverse)
 
-5.5.2 London Boroughs
+```
+
+
+1. Spatial joining
+
+```{r message=FALSE, warning=FALSE}
+
+# load london borough data, set CRS as BNG
+londonboroughs <- st_read("statistical-gis-boundaries-london/ESRI/London_Borough_Excluding_MHW.shp")  %>%
+  st_transform(., 27700)
+
+# load osm data, set CRS as BNG
+OSM <- st_read("greater-london-latest-free.shp/gis_osm_pois_a_free_1.shp") %>%
+  st_transform(., 27700) 
+
+# select only hotels
+OSM <- OSM %>%
+  filter(fclass == "hotel")
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# join the two spatial datasets
+join_example <-  st_join(londonboroughs, OSM)
+
+```
+
+2. Static Map
+
+Reading in more datasets
+
+```{r message=FALSE, warning=FALSE}
+# load world cities data, set CRS as BNG
+world_cities <- st_read("World_Cities/World_Cities.shp") %>%
+  st_transform(., 27700)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# load airbnb csv and convert into spatial data (crs 4326)
+airbnb <- read_csv("listings.csv") %>%
+  st_as_sf(., coords = c("longitude", "latitude"), crs = 4326) %>% 
+  # set CRS as BNG
+  st_transform(., 27700) %>%
+  # filter to entire homes available all year
+  filter(room_type == "Entire home/apt" & availability_365 == "365")
+```
+
+
+```{r message=FALSE, warning=FALSE}
+
+output_kari <- OSM %>%
+  st_join(londonboroughs,.) %>%
+  add_count(GSS_CODE, name="hotels_in_borough") 
+```
 
