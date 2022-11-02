@@ -9,16 +9,20 @@ Packages used for task
 ```{r message = FALSE, warning=FALSE}
 library(tidyverse)
 library(sf)
+library(janitor)
+library(countrycode)
 ```
 1. Read in global gender inequality data 
 
 ```{r message=FALSE, warning=FALSE}
 # read in gender inequality data
-gii<- read_csv("HDR21-22_Composite_indices_complete_time_series.csv")
+gii<- read_csv("HDR21-22_Composite_indices_complete_time_series.csv", na = " ")
 
 # subset to essential info and gender inequality index in 2010 and 2019
 gii_sub <- gii %>%
-  select(iso3, country, gii_2010, gii_2019)
+  clean_names() %>%
+  select(iso3, country, gii_2010, gii_2019) %>%
+  mutate(iso2 = countrycode(iso3, origin = "iso3c", destination = "iso2c"))
 ```
 
 2. Join the global gender inequality index to spatial data of the World, creating a new column of difference in inequality
@@ -29,10 +33,10 @@ world <- read_sf("World_Countries_(Generalized)/World_Countries__Generalized_.sh
 
 # join the gii to the world spatial data
 gii_world <- world %>%
-  left_join(., gii_sub, by = c('ISO' = 'iso3'))
+  left_join(., gii_sub, by = c('ISO' = 'iso2'))
 
 # make column for difference in gii in 2010 and 2019
-gii_sub <- gii_sub %>%
+gii_world <- gii_world %>%
   mutate(gii_dif = gii_2019 - gii_2010)
 ```
 
