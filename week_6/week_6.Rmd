@@ -1,0 +1,274 @@
+---
+title: "Week 6 practical"
+output: html_document
+date: '2022-11-16'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Research Question: “For any given London Borough, are the Blue Plaques within that borough distributed randomly or do they exhibit some kind of dispersed or clustered pattern?”
+
+```{r message=FALSE, warning=FALSE}
+
+#library the packages needed
+library(spatstat)
+library(here)
+library(sp)
+library(rgeos)
+library(maptools)
+library(tmap)
+library(sf)
+library(geojson)
+library(geojsonio)
+library(tmaptools)
+library(tidyverse)
+
+```
+
+
+## Setting up the data 
+
+```{r message=FALSE, warning=FALSE}
+
+# get the boundaries of London boroughs
+london_boroughs <- st_read("statistical-gis-boundaries-london/statistical-gis-boundaries-london/ESRI/London_Borough_Excluding_MHW.shp") %>% st_transform(.,27700)
+
+# check the data
+st_crs(london_boroughs)
+
+# map the boroughs
+qtm(london_boroughs)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+summary(london_boroughs)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# read in the data for the locations of the blue plaques
+blue_plaques <- st_read("open-plaques-london-2018-04-08.geojson") %>% st_transform(.,27700)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+summary(blue_plaques)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+#plot the blue plaques in the city
+tmap_mode("plot")
+tm_shape(london_boroughs) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(blue_plaques) +
+  tm_dots(col = "blue")
+
+```
+
+# Data cleaning 
+
+Need to remove any plaques with the same grid reference 
+
+```{r message=FALSE, warning=FALSE}
+blue_plaques <- distinct(blue_plaques)
+```
+
+# Spatial subsetting
+
+Only select the points within the London boroughs
+
+```{r message=FALSE, warning=FALSE}
+
+blue_plaques_london <- blue_plaques[london_boroughs,] 
+
+# check to see the locations 
+tmap_mode("plot")
+tm_shape(london_boroughs) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(blue_plaques_london) +
+  tm_dots(col = "blue")
+
+```
+
+- use st_intersect() to have the indices of where they intersect
+- st_equals returns true when the two sf objects have the same geometry 
+
+```{r message=FALSE, warning=FALSE}
+
+intersect_indices <-st_intersects(london_boroughs, blue_plaques, sparse = FALSE)
+
+```
+
+# spatial clipping
+
+taking layers and extracting 
+
+# spatial joining 
+
+```{r}
+
+# read in hotel location data from osm, transform projection to BNG
+osm_hotel <- st_read("greater-london-latest-free.shp/gis_osm_pois_a_free_1.shp") %>%
+  st_transform(., 27700) %>%
+  filter(fclass == "hotel")
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# join the hotel dataset with londonboroughs - gives the borough each of the hotels are located in 
+join_example <-  st_join(osm_hotel, london_boroughs)
+nrow(join_example)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# read in the .csv and make it into spatial data
+
+Airbnb <- read_csv("listings.csv") %>%
+  st_as_sf(., coords = c("longitude", "latitude"), 
+                   crs = 4326) %>%
+    st_transform(., 27700)%>%
+    #select entire places that are available all year
+    filter(room_type == 'Entire home/apt' & availability_365 =='365')
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# make function for joining the data, make a new column for the number of 'hotels' in borough
+Joinfun <- function(data1, data2){
+
+output<- data1%>%
+  st_join(london_boroughs,.) %>%
+  add_count(GSS_CODE, name="hotels_in_borough") 
+
+  return(output)
+}
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# use the function for hotels
+Hotels <- Joinfun(osm_hotel, london_boroughs)
+
+# then for airbnb
+Airbnb <- Joinfun(Airbnb, london_boroughs)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# at the moment each hotel/airbnb is a row for the borough
+# create rows that has the number of hotels/airbnb
+
+Hotels_sum <- Hotels %>%
+  group_by(., GSS_CODE, NAME)%>%
+  summarise(`Accomodation count` = unique(hotels_in_borough))
+
+Airbnb_sum <- Airbnb %>%
+  group_by(., GSS_CODE, NAME)%>%
+  summarise(`Accomodation count` = unique(hotels_in_borough))
+```
+
+Join the hotel data and the airbnb data! - need to use st_join as both are spatial data
+- st_join uses st_intersects by default - 
+
+```{r message=FALSE, warning=FALSE}
+
+all_accomodation <- st_join(Hotels_sum, Airbnb_sum)
+
+head(all_accomodation)
+
+```
+
+```{r}
+all_accomodation <- st_join(Hotels_sum, Airbnb_sum, join = st_equals)
+
+head(all_accomodation)
+```
+
+# Key points
+
+- Select points or polygons in a polygon = Selecting data by location = spatial sub-setting
+
+- Determine where datasets overlap (or touch, or don’t overlap) and extract those parts = spatial clipping
+
+- Join two spatial datasets together = spatial joining, which can use spatial subsetting functions as the default is st_intersects(); This function joins spatial data
+
+- Selecting data by attributes = filtering or selecting rows / columns with dplyr
+
+# Study Area
+
+choosing the borough of Harrow to focus on as running the analysis for the whole of London is going to take time; will enable us to compare
+
+```{r message=FALSE, warning=FALSE}
+
+# extract the borough by selecting by attribute
+Harrow <- london_boroughs %>%
+  filter(., NAME=="Harrow")
+
+#Check to see that the correct borough has been pulled out
+tm_shape(Harrow) +
+  tm_polygons(col = NA, alpha = 0.5)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# clip the blue plaques data to our single borough
+blue_plaques_harrow <- blue_plaques[Harrow,]
+
+#check that it's worked
+tmap_mode("plot")
+tm_shape(Harrow) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(blue_plaques_harrow) +
+  tm_dots(col = "blue")
+
+```
+
+start the analysis with spatstat
+ 
+- create an observation window for spatstatto carryout the analysis within
+
+```{r message=FALSE, warning=FALSE}
+# set a window as the borough boundary
+window <- as.owin(Harrow)
+plot(window)
+```
+
+- create a point pattern (ppp) object to use with spatstat
+
+```{r message=FALSE, warning=FALSE}
+
+# create a sp object
+blue_plaques_harrow_sp <- blue_plaques_harrow %>%
+  as(., 'Spatial')
+
+# create a ppp object
+blue_plaques_harrow_ppp <- ppp(x=blue_plaques_harrow_sp@coords[,1], y=blue_plaques_harrow_sp@coords[,2], window=window)
+
+```
+
+have a look at the new object
+
+```{r message=FALSE, warning=FALSE}
+blue_plaques_harrow_
+```
+
+
+don't do every single! (quadrat, ripley's k, )
+- choose the most appropriate
+- justify the choices (understand their strngths and limitations )
+- check hdbscan, optics, 
+
+- the crs, nas, 
+- show where the data is from 
