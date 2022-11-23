@@ -261,14 +261,283 @@ blue_plaques_harrow_ppp <- ppp(x=blue_plaques_harrow_sp@coords[,1], y=blue_plaqu
 have a look at the new object
 
 ```{r message=FALSE, warning=FALSE}
-blue_plaques_harrow_
+blue_plaques_harrow_ppp %>%
+  plot(.,pch=16,cex=0.5, 
+       main="Blue Plaques Harrow")
+```
+
+## Point pattern analysis
+
+# Kernel Density Estimation
+
+plot the density of points using a kernel
+
+```{r}
+blue_plaques_harrow_ppp %>%
+  density(., sigma=500) %>%
+  plot()
+```
+
+sigma value sets the diameter of the Kernel (in the units your map is in — in this case, as we are in British National Grid the units are in metres)
+
+```{r}
+blue_plaques_harrow_ppp %>%
+  density(., sigma=1000) %>%
+  plot()
+```
+
+# Quadrat Analysis
+
+does the distribution of points differ from 'complete spatial randomness'?
+
+Quadrat test - most basic, not recommended
+
+```{r}
+# First plot the points
+plot(blue_plaques_harrow_ppp,
+     pch=16,
+     cex=0.5, 
+     main="Blue Plaques in Harrow")
+
+# now count the points in that fall in a 6 x 6 grid overlaid across the window 
+blue_plaques_harrow_ppp %>%
+  quadratcount(.,nx = 6, ny = 6)%>%
+    plot(., add=T, col="red")
+```
+
+whether or not there is any kind of spatial patterning associated with the Blue Plaques in areas of London - comparing with csr which is based on the poisson distribution
+
+saving the results in to a table
+
+```{r}
+# run the quadrat count
+Qcount <- blue_plaques_harrow_ppp %>%
+  quadratcount(.,nx = 6, ny = 6) %>%
+  as.data.frame() %>%
+  dplyr::count(Var1=Freq)%>%
+  dplyr::rename(Freqquadratcount=n)
+
+# check data type (convert to numeric if factor)
+Qcount %>% 
+  summarise_all(class)
+
+```
+
+Pr = (X=k) = (λ^k*e^−λ)/k!
+- x is the number of occurrences
+- λ is the mean number of occurrences
+- e is a constant - 2.718
+
+```{r}
+sums <- Qcount %>%
+  #calculate the total blue plaques (Var * Freq)
+  mutate(total = Var1 * Freqquadratcount) %>%
+  dplyr::summarise(across(everything(), sum))%>%
+  dplyr::select(-Var1) 
+
+lambda<- Qcount%>%
+  #calculate lambda
+  mutate(total = Var1 * Freqquadratcount)%>%
+  dplyr::summarise(across(everything(), sum)) %>%
+  mutate(lambda=total/Freqquadratcount) %>%
+  dplyr::select(lambda)%>%
+  pull(lambda)
+```
+
+Calculate expected using the Poisson formula from above
+k is the number of blue plaques counted in a square and is found in the first column of our table
+
+```{r}
+QCountTable <- Qcount %>%
+  mutate(Pr=((lambda^Var1)*exp(-lambda))/factorial(Var1))%>%
+  #now calculate the expected counts based on our total number of plaques
+  #and save them to the table
+  mutate(Expected= (round(Pr * sums$Freqquadratcount, 0)))
+
+#Compare the frequency distributions of the observed and expected point patterns
+plot(c(1,5),c(0,14), type="n",
+xlab="Number of Blue Plaques (Red=Observed,Blue=Expected)", 
+     ylab="Frequency of Occurances")
+points(QCountTable$Freqquadratcount, 
+       col="Red", 
+       type="o", 
+       lwd=3)
+points(QCountTable$Expected, col="Blue", 
+       type="o", 
+       lwd=3)
+```
+
+quadrat.test - uses a Chi Squared test to compare the observed and expected frequencies for each quadrant
+
+p-value > 0.05 - we have CSR and there is no pattern in our points
+p-value < 0.05 - we do have clustering in our points
+
+```{r}
+teststats <- quadrat.test(blue_plaques_harrow_ppp, nx = 6, ny = 6)
+
+plot(blue_plaques_harrow_ppp,pch=16,cex=0.5, main="Blue Plaques in Harrow")
+plot(teststats, add=T, col = "red")
+```
+
+top-left figure: the observed count of points
+top-right: Poisson expected number of points
+the bottom value: the residual value (also known as Pearson residual value), or (Observed - Expected) / Sqrt(Expected)
+
+consideration 
+- the Poisson distribution only describes observed occurrences that are counted in integers; where our occurrences = 0 (i.e. not observed), this can be an issue
+- MAUP
+
+```{r}
+
+```
+
+# Ripley’s K
+
+addressing the limitations of quadrat analysis - compare the observed distribution of points with the Poisson random model for a whole range of different distance radii
+
+```{r}
+K <- blue_plaques_harrow_ppp %>%
+  Kest(., correction="border") %>%
+  plot()
+```
+
+Red line: the theoretical value of K for each distance window (r) under a Poisson assumption of Complete Spatial Randomness
+Black line: the estimated values of K accounting for the effects of the edge of the study area. 
+
+- Where the value of K falls above the line, the data appear to be clustered at that distance
+- Where the value of K is below the line, the data are dispersed
+
+## Density-based spatial clustering of applications with noise: DBSCAN
+
+WHERE in our area of interest the clusters are occurring
+
+```{r}
+## libraries needed to install
+library(raster)
+library(fpc)
+```
+
+```{r message=FALSE, warning=FALSE}
+#first check the coordinate reference system of the Harrow spatial polygon:
+st_geometry(london_boroughs)
+```
+
+two parameters required to input
+- Epsilon: the radius within which the algorithm with search for clusters 
+- MinPts: this is the minimum number of points that should be considered a cluster
+
+```{r}
+# extract the points from the spatial points data frame
+blue_plaques_harrow_points <- blue_plaques_harrow_sp %>%
+  coordinates(.)%>%
+  as.data.frame()
+
+# now run the dbscan analysis
+# eps is set based on ripley's k - clustering measures
+db <- blue_plaques_harrow_points %>%
+  fpc::dbscan(.,eps = 700, MinPts = 4)
+
+# plot the results
+plot(db, blue_plaques_harrow_points, main = "DBSCAN Output", frame = F)
+plot(london_boroughs$geometry, add=T)
+```
+
+```{r message=FALSE, warning=FALSE}
+# used to find suitable eps value based on the knee in plot
+# k is no of nearest neighbours used, use min points
+library(dbscan)
+
+blue_plaques_harrow_points %>%
+  dbscan::kNNdistplot(.,k=4)
+```
+
+The plot shows for each point the average distance to the k neighbours, which are then plotted in ascending order. The knee is where this value (of distance to neighbours) increases.
+
+making more aesthetically pleasing plots!!
+- extract information from db and use ggplot2
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+```
+
+db object - includes info about the cluster each point belongs to, whether the point is a seed point or edge point
+
+```{r message=FALSE, warning=FALSE}
+# retrieve a summary of the object
+db
+```
+
+```{r message=FALSE, warning=FALSE}
+# cluster membership
+db$cluster
+```
+
+```{r message=FALSE, warning=FALSE}
+# add the cluster membership to the dataframe
+blue_plaques_harrow_points<- blue_plaques_harrow_points %>%
+  mutate(dbcluster=db$cluster)
+```
+
+```{r message=FALSE, warning=FALSE}
+# create convex hull polygons to wrap around the points in the clusters
+chulls <- blue_plaques_harrow_points %>%
+  group_by(dbcluster) %>%
+  # first hull - give the count of numbers
+  dplyr::mutate(hull = 1:n(),
+  # chull - Compute Convex Hull of a Set of Points
+  hull = factor(hull, chull(coords.x1, coords.x2))) %>%
+  # have the ones that create convex hull on type
+  arrange(hull)
+```
+
+```{r message=FALSE, warning=FALSE}
+# drop group 0 as it is not a cluster 
+chulls <- chulls %>%
+  filter(dbcluster >=1)
+```
+
+```{r message=FALSE, warning=FALSE}
+dbplot <- ggplot(data=blue_plaques_harrow_points, 
+                 aes(coords.x1,coords.x2, colour=dbcluster, fill=dbcluster)) 
+# add the points in
+dbplot <- dbplot + geom_point()
+# now the convex hulls
+dbplot <- dbplot + geom_polygon(data = chulls, aes(coords.x1,coords.x2, group=dbcluster), alpha = 0.5) 
+# now plot, setting the coordinates to scale correctly and as a black and white plot 
+# (just for the hell of it)...
+dbplot + theme_bw() + coord_equal()
+```
+
+```{r message=FALSE, warning=FALSE}
+# add a basemap
+# First get the bbox in lat long for Harrow
+HarrowWGSbb <- Harrow %>%
+  st_transform(., 4326)%>%
+  st_bbox()
+```
+
+```{r message=FALSE, warning=FALSE}
+library(OpenStreetMap)
+
+basemap <- OpenStreetMap::openmap(c(51.5549876,-0.4040502),c(51.6405356,-0.2671315), zoom=NULL, "stamen-toner")
+
+# convert the basemap to British National Grid
+basemap_bng <- openproj(basemap, projection="+init=epsg:27700")
+```
+
+```{r message=FALSE, warning=FALSE}
+#autoplot(basemap_bng) sometimes works
+autoplot.OpenStreetMap(basemap_bng)+ 
+  geom_point(data=blue_plaques_harrow_points, 
+             aes(coords.x1,coords.x2, 
+                 colour=dbcluster, 
+                 fill=dbcluster)) + 
+  geom_polygon(data = chulls, 
+               aes(coords.x1,coords.x2, 
+                   group=dbcluster,
+                   fill=dbcluster), 
+               alpha = 0.5)  
 ```
 
 
-don't do every single! (quadrat, ripley's k, )
-- choose the most appropriate
-- justify the choices (understand their strngths and limitations )
-- check hdbscan, optics, 
 
-- the crs, nas, 
-- show where the data is from 
